@@ -125,24 +125,24 @@ func httpRuleToPathMap(opts options.Options, md protoreflect.MethodDescriptor, r
 	// Add named path parameters from glob patterns
 	for _, token := range tokens {
 		if token.Type == TokenVariable && strings.Contains(token.Value, "=") {
-			matches := namedPathPattern.FindStringSubmatch("{" + token.Value + "}")
-			if len(matches) == 3 {
-				// Convert the path from the starred form to use named path parameters.
-				starredPath := matches[2]
-				parts := strings.Split(starredPath, "/")
-				// The starred path is assumed to be in the form "things/*/otherthings/*".
-				// We want to convert it to "things/{thingsId}/otherthings/{otherthingsId}".
-				for i := 0; i < len(parts)-1; i += 2 {
-					section := parts[i]
-					namedPathParameter := util.Singular(section)
-					// Add the parameter to the operation
-					op.Parameters = append(op.Parameters, &v3.Parameter{
-						Name:        namedPathParameter,
-						In:          "path",
-						Required:    proto.Bool(true),
-						Description: "The " + namedPathParameter + " id.",
-						Schema:      base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}}),
-					})
+			parts := strings.SplitN(token.Value, "=", 2)
+			if len(parts) == 2 {
+				pathParts := strings.Split(parts[1], "/")
+				for j, part := range pathParts {
+					if part == "*" && j > 0 {
+						paramName := pathParts[j-1]
+						// Convert to singular form if it ends with 's'
+
+						paramName = strings.TrimSuffix(paramName, "s")
+						// Add the parameter to the operation
+						op.Parameters = append(op.Parameters, &v3.Parameter{
+							Name:        paramName,
+							In:          "path",
+							Required:    proto.Bool(true),
+							Description: "The " + paramName + " id.",
+							Schema:      base.CreateSchemaProxy(&base.Schema{Type: []string{"string"}}),
+						})
+					}
 				}
 			}
 		}
@@ -320,22 +320,23 @@ func partsToOpenAPIPath(tokens []Token) string {
 		case TokenVariable:
 			// Handle the name= prefix by extracting just the path portion
 			if strings.Contains(token.Value, "=") {
-				matches := namedPathPattern.FindStringSubmatch("{" + token.Value + "}")
-				if len(matches) == 3 {
-					// Add the "name=" "name" value to the list of covered parameters.
-					// Convert the path from the starred form to use named path parameters.
-					starredPath := matches[2]
-					parts := strings.Split(starredPath, "/")
-					// The starred path is assumed to be in the form "things/*/otherthings/*".
-					// We want to convert it to "things/{thingsId}/otherthings/{otherthingsId}".
-					for i := 0; i < len(parts)-1; i += 2 {
-						section := parts[i]
-						namedPathParameter := util.Singular(section)
-						parts[i+1] = "{" + namedPathParameter + "}"
+				parts := strings.SplitN(token.Value, "=", 2)
+				if len(parts) == 2 {
+					// Parse the path portion and convert stars to named parameters
+					pathParts := strings.Split(parts[1], "/")
+					for j, part := range pathParts {
+						if part == "*" {
+							// Get the previous segment name to use as the parameter name
+							if j > 0 {
+								paramName := pathParts[j-1]
+								// Convert to singular form if it ends with 's'
+
+								paramName = strings.TrimSuffix(paramName, "s")
+								pathParts[j] = "{" + paramName + "}"
+							}
+						}
 					}
-					// Rewrite the path to use the path parameters.
-					newPath := strings.Join(parts, "/")
-					b.WriteString(newPath)
+					b.WriteString(strings.Join(pathParts, "/"))
 				} else {
 					b.WriteByte('{')
 					b.WriteString(token.Value)
