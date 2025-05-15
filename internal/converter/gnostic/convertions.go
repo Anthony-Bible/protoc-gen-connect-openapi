@@ -12,6 +12,8 @@ import (
 	"github.com/sudorandom/protoc-gen-connect-openapi/internal/converter/options"
 	"github.com/sudorandom/protoc-gen-connect-openapi/internal/converter/util"
 	"gopkg.in/yaml.v3"
+
+	low "github.com/pb33f/libopenapi/datamodel/low"
 )
 
 func toServers(servers []*goa3.Server) []*v3.Server {
@@ -556,10 +558,28 @@ func toParameters(params []*goa3.ParameterOrReference) []*v3.Parameter {
 }
 
 func toParameter(paramOrRef *goa3.ParameterOrReference) *v3.Parameter {
-	if paramOrRef == nil || paramOrRef.GetParameter() == nil {
+	if paramOrRef == nil {
 		return nil
 	}
+
+	if ref := paramOrRef.GetReference(); ref != nil {
+		p := &v3.Parameter{}
+		refString := ref.XRef
+		refNode := utils.CreateStringNode(refString)
+		low.SetReference(p, refString, refNode)
+		return p
+	}
+
 	param := paramOrRef.GetParameter()
+	if param == nil {
+		return nil
+	}
+
+	var exampleNode *yaml.Node
+	if param.Example != nil {
+		exampleNode = param.Example.ToRawInfo()
+	}
+
 	return &v3.Parameter{
 		Name:            param.GetName(),
 		In:              param.In,
@@ -571,7 +591,8 @@ func toParameter(paramOrRef *goa3.ParameterOrReference) *v3.Parameter {
 		Explode:         &param.Explode,
 		AllowReserved:   param.AllowReserved,
 		Schema:          toSchemaOrReference(param.GetSchema()),
-		Example:         param.Example.ToRawInfo(),
+		Example:         exampleNode,
+		Examples:        toExamples(param.GetExamples()),
 		Content:         toMediaTypes(param.GetContent()),
 		Extensions:      toExtensions(param.GetSpecificationExtension()),
 	}
